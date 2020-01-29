@@ -1,60 +1,76 @@
-/** 
- *  Written by Haadi Khan and Mark Shapiro
- *  Half Hollow Hills High School East C
- *  Team #
- */
-
 #include <LiquidCrystal.h>
 
-LiquidCrystal lcd(2, 3, 6, 7, 4, 5); //The  LCD display
+LiquidCrystal lcd(2, 3, 6, 7, 4, 5);
 
 const int sensorPin = A0;    // select the input pin for thermistor
 const int redPin = 9;      // selects the pins for the LEDs
 const int greenPin = 10;
 const int bluePin = 11;
 
-double sensorValue;  // Variable to store the value coming from the sensor
 double knownResistance = 1002; //The resistor used for the voltage divider
-double roomTemp = 293.15; //Room Temp in Kelvin
+double sensorValue;  // Variable to store the value coming from the sensor
+double roomTemp = 23.0; //Room Temp
 double roomResistance = 10780.14; // Resistance at room temp
-double beta = 3950.0; //Taken from amazon description
+double beta = 3950;
 
-int max_ADC = 1023; //use this for the ADC 
+int max_ADC = 1023;
 double currentTemp;
 double currentVoltage;
+double thermResistance;
 
-void setup() { //DON'T CHANGE
+void setup() {
   lcd.begin(16, 2);
-  pinMode(sensorPin, OUTPUT);
   pinMode(redPin, OUTPUT);
   pinMode(greenPin, OUTPUT);
   pinMode(bluePin, OUTPUT);
   Serial.begin(9600);
 }
 
-
-double * temperature() { //how can I return an array?
+double temperature(double currentVoltage) {
+  // read the value from the sensor:
   double tempKelvin;
   double tempCelcius;
 
   sensorValue = analogRead(sensorPin);
 
-  //ADC time
-  double thermResistance = knownResistance * ((max_ADC / sensorValue) - 1); //now we have the thermistor resistance, yay
+  tempKelvin = (beta * roomTemp) /
+               (beta + (roomTemp * log(thermResistance / roomResistance)));
+  tempCelcius = tempKelvin - 273.15; //convert to celcius
+
+  return tempCelcius; //return it, yay
+}
+double voltage(double thermResistance) {
   double thermVoltage = 5 * ((thermResistance)/(thermResistance + knownResistance));
-  return thermVoltage; //please help with returning this data
+  return thermVoltage;
 }
 
-void lcdDisplay(double currentVoltage) { //display the info DON'T CHANGE
-  String mrBouklas = (String) currentVoltage;
-  lcd.print(mrBouklas + " Volts");
-  delay(1500);
+void lcdDisplay(double thermResistance, double currentVoltage) {
+  lcd.print((String)thermResistance + " Ohms");
+  lcd.setCursor(0, 1);
+  lcd.print((String)currentVoltage + " Volts");
+  delay(1000);
   lcd.clear();
 }
 
-void loop() {
-  double oof = temperature(); //please fix this accordingly
-  currentVoltage = oof;
+void led(double currentTemp) { //configure the temperature ranges for the leds  DON'T CHANGE
+  if (currentTemp <= 25 && currentTemp < 25.01) {
+    digitalWrite(bluePin, HIGH);
+    }
+  if (currentTemp > 25 && currentTemp <= 50 && currentTemp < 50.01) {
+    digitalWrite(greenPin, HIGH);
+    }
+  if (currentTemp > 50 && currentTemp <= 75) {
+    digitalWrite(redPin, HIGH);
+    }
+}
 
-  lcdDisplay(currentVoltage);
+void loop() {
+  thermResistance = knownResistance * ((max_ADC / sensorValue) - 1);
+  
+  currentVoltage = voltage(thermResistance);
+  currentTemp = temperature(currentVoltage);
+  
+  lcdDisplay(thermResistance, currentVoltage);
+  led(currentTemp);
+
 }
