@@ -1,76 +1,106 @@
 #include <LiquidCrystal.h>
+#include <stdbool.h>
 
-LiquidCrystal lcd(2, 3, 6, 7, 4, 5);
+//pins and LCD
+LiquidCrystal lcd(7, 6, 5, 4, 3, 2);
+#define THERMISTOR_PIN A0
+#define RED_LED 11
+#define GREEN_LED 12
+#define BLUE_LED 13
 
-const int sensorPin = A0;    // select the input pin for thermistor
-const int redPin = 9;      // selects the pins for the LEDs
-const int greenPin = 10;
-const int bluePin = 11;
+//Variables for Voltage Divider
+const int KNOWN_RESISTANCE = 1002;
+const int MAX_ADC = 1023;
+float sensorValue;
 
-double knownResistance = 1002; //The resistor used for the voltage divider
-double sensorValue;  // Variable to store the value coming from the sensor
-double roomTemp = 23.0; //Room Temp
-double roomResistance = 10780.14; // Resistance at room temp
-double beta = 3950;
+//variables for thermistor volts, resistance, and temps
+float currentTemp, currentVoltage, thermResistance, thermAverage;
 
-int max_ADC = 1023;
-double currentTemp;
-double currentVoltage;
-double thermResistance;
+//Variables for smoothing the readings
+#define READING_NUMBER 10
+float readings[READING_NUMBER];
+int total;
+
+//Variables for LED temperature thresholds
+float temp1 = 25.0;
+float temp2 = 50.0;
+float temp3 = 75.0;
+
+const int EPSILON = 0.0001;
 
 void setup() {
-  lcd.begin(16, 2);
-  pinMode(redPin, OUTPUT);
-  pinMode(greenPin, OUTPUT);
-  pinMode(bluePin, OUTPUT);
   Serial.begin(9600);
+  pinMode(BLUE_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
+  lcd.begin(16, 2);
+
+  for(int thisReading = 0; thisReading < READING_NUMBER; thisReading++) {
+    readings[thisReading] = 0;
+  }
 }
 
-double temperature(double currentVoltage) {
-  // read the value from the sensor:
-  double tempKelvin;
-  double tempCelcius;
-
-  sensorValue = analogRead(sensorPin);
-
-  tempKelvin = (beta * roomTemp) /
-               (beta + (roomTemp * log(thermResistance / roomResistance)));
-  tempCelcius = tempKelvin - 273.15; //convert to celcius
-
-  return tempCelcius; //return it, yay
-}
-double voltage(double thermResistance) {
-  double thermVoltage = 5 * ((thermResistance)/(thermResistance + knownResistance));
-  return thermVoltage;
+float getTemperature(float currentVoltage) {
+  float sensorValue = analogRead(THERMISTOR_PIN);
+  //Formula from regression, more accurate than Steinhart–Hart
+  float tempKelvin = -17967 * currentVoltage + 9989*pow(currentVoltage,2) + -2764*pow(currentVoltage,3) + 380*pow(currentVoltage,4) + -20.85*pow(currentVoltage,5);
+  //Include conversion to Celcius
+  return tempKelvin - 273.15;
 }
 
-void lcdDisplay(double currentTemp, double currentVoltage) {
+float getVoltage(float thermAverage) {
+  //Voltage Divider equation to get Voltage from resistances
+  return 5 * ((thermResistance)/(thermResistance + KNOWN_RESISTANCE));
+}
+
+void lcdDisplay(float currentVoltage, float currentTemp) {
   lcd.print((String)currentTemp + " C");
-  lcd.setCursor(0, 1);
+  lcd.setCursor(0,1); //move to second row
   lcd.print((String)currentVoltage + " Volts");
   delay(1500);
   lcd.clear();
 }
 
-void led(double currentTemp) { //configure the temperature ranges for the leds  DON'T CHANGE
-  if (currentTemp <= 25) {
-    digitalWrite(bluePin, HIGH);
+void led(float currentTemp) {
+  if (!isThermBroken(currentTemp)) {
+    if (currentTemp <= temp1 && currentTemp < temp2) {
+      digitalWrite(BLUE_LED, HIGH);
+    } else if (currentTemp <= temp2 && currentTemp < temp3) {
+      digitalWrite(GREEN_LED, HIGH);
+    } else {
+      digitalWrite(RED_LED, HIGH);
     }
-  if (currentTemp <= 50) {
-    digitalWrite(greenPin, HIGH);
-    }
-  if (currentTemp <= 75) {
-    digitalWrite(redPin, HIGH);
-    }
+  } else {
+    temperatureError();
+  }
+}
+
+boolean isThermBroken(float currentTemp) {
+  return abs(currentTemp - 273.15) > EPSILON;
+}
+//called in case the temperature is screwed up (broken thermistor)
+void temperatureError() {
+  int ledList[] = {BLUE_LED, GREEN_LED, RED_LED};
+  for(int i = 0; i < 3; i++) {
+    digitalWrite(ledList[i], HIGH);
+    delay(500);
+    digitalWrite(ledList[i], LOW);
+    delay(500);
+  }
 }
 
 void loop() {
-  thermResistance = knownResistance * ((max_ADC / sensorValue) - 1);
+  //Voltage Divider Equation
+  thermResistance = KNOWN_RESISTANCE * ((MAX_ADC/sensorValue) - 1);
   
-  currentVoltage = voltage(thermResistance);
-  currentTemp = temperature(currentVoltage);
-  
-  lcdDisplay(currentTemp, currentVoltage);
+  for (int i = 0; i >= READING_NUMBER; i++) {
+    total = total - readings[i];
+    readings[i] = analogRead(THERMISTOR_PIN);
+  }
+
+  float thermResistanceAverage = total/READING_NUMBER;
+  lcdDisplay(getVoltage(thermResistanceAverage), getTemperature(currentVoltage));
   led(currentTemp);
 
+  delay(100);
 }
